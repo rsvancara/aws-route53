@@ -4,6 +4,10 @@ This tool will take a YAML file and synchronize the YAML configuration to an AWS
 hosted zone.  It assumes the configuration file is authoritative and remove records
 that are not in the configuration file, so be careful while testing.
 
+## Usage
+
+route53-zone -c path_to_configuration file
+
 ## Configuration file
 
 Example configuration file:
@@ -65,3 +69,11 @@ ResourceRecordSets:
         - Value: 10.152.45.7
 
 ```
+
+# Additional Notes:
+Not all AWS features have been implemented.  
+1.  Missing configuration for GEOIP
+2.  MIssing configuration for health checks for AliasTargets
+3.  Probably other features missing
+4.  It will not update SOA or NS records, these are filtered out by default
+5.  This is considered alpha quality code.  
