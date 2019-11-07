@@ -29,8 +29,8 @@ ResourceRecordSets:
     - Name: fakename.somedomain.es.
       Type: A
       AliasTarget: 
-        HostedZoneID: Z1H1FL5HABSF5
-        DNSName: dualstack.nginx-consumer-stg-1962099819.us-west-2.elb.amazonaws.com.
+        HostedZoneID: Z1H1FL5HAXXXX
+        DNSName: dualstack.xxxxx-1962099819.us-west-2.elb.amazonaws.com.
         EvaluateTargetHealth: false
     - Name: farscape.somedomain.es.
       Type: CNAME
@@ -40,8 +40,8 @@ ResourceRecordSets:
     - Name: anothername.somedomain.es.
       Type: CNAME
       AliasTarget: 
-        HostedZoneID: Z1H1FL5HABSF5
-        DNSName: dualstack.nginx-consumer-stg-1962099819.us-west-2.elb.amazonaws.com.
+        HostedZoneID: Z1H1FL5HAXXXX
+        DNSName: dualstack.xxxxx-1962099819.us-west-2.elb.amazonaws.com.
         EvaluateTargetHealth: false
     - Name: mx.somedomain.es.
       Type: MX
