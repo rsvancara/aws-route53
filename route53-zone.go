@@ -571,5 +571,4 @@ func getRoute53ZoneConfig(config *route53Zone, rrset *route53.ResourceRecordSet)
 
 	// Finally append the RR to the configuration
 	config.ResourceRecordSets = append(config.ResourceRecordSets, rr)
-
 }
