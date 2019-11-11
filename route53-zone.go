@@ -475,6 +475,7 @@ func getHostedZoneIDByNameLookup(svc *route53.Route53, hostedZoneName string) (s
 // Build all route53 configurations for an AWS account
 func configBuildAllConfigs(svc *route53.Route53, path string) {
 
+	// Make sure the path exists to the best of our ability
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		os.Mkdir(path, os.ModeDir)
 	}
@@ -484,6 +485,7 @@ func configBuildAllConfigs(svc *route53.Route53, path string) {
 		log.Fatalf("error obtaining hosted zones list with error: %s", err)
 	}
 
+	// Iterate over all the hosted zones in the account
 	for _, val := range zones {
 
 		var config route53Zone
@@ -512,29 +514,35 @@ func configBuildAllConfigs(svc *route53.Route53, path string) {
 
 		}
 
+		// Marshal data structure into YAML file
 		yamlFile, err := yaml.Marshal(config)
 		if err != nil {
 			log.Fatalf("Error serializing config struct to YAML with error: %s", err)
 		}
 
+		// Build the file path
 		filePath := path + string(os.PathSeparator) + strings.TrimSuffix(zoneName, ".") + ".yaml"
 
+		// Write the file out
 		err = ioutil.WriteFile(filePath, yamlFile, 0644)
 		if err != nil {
 			log.Fatalf("Error generating configuration file %s with error %s", filePath, err)
 		}
+
+		// Display some useful information
 		fmt.Println(fmt.Sprintf("Records: %d", len(config.ResourceRecordSets)))
 		fmt.Println(fmt.Sprintf("Status: Created file %s", filePath))
 	}
 }
 
-// maps a route53.RecordSet to a configuration object
-func getRoute53ZoneConfig(config *route53Zone, rrset *route53.ResourceRecordSet) *resourceRecordSet {
+// maps a route53.RecordSet to a configuration object so it can be marshalled to YAML
+func getRoute53ZoneConfig(config *route53Zone, rrset *route53.ResourceRecordSet) {
 
 	var rr resourceRecordSet
 
+	// Ignore SOA and NS record types
 	if aws.StringValue(rrset.Type) == "SOA" || aws.StringValue(rrset.Type) == "NS" {
-		return nil
+		return
 	}
 
 	rr.Name = aws.StringValue(rrset.Name)
@@ -544,12 +552,14 @@ func getRoute53ZoneConfig(config *route53Zone, rrset *route53.ResourceRecordSet)
 
 	rr.Type = aws.StringValue(rrset.Type)
 
+	// Only add AliasTarget if it exists
 	if rrset.AliasTarget != nil {
 		rr.AliasTarget.DNSName = aws.StringValue(rrset.AliasTarget.DNSName)
 		rr.AliasTarget.HostedZoneID = aws.StringValue(rrset.AliasTarget.HostedZoneId)
 		rr.AliasTarget.EvaluateTargetHealth = aws.BoolValue(rrset.AliasTarget.EvaluateTargetHealth)
 	}
 
+	// Only add RR if it exists
 	if rrset.ResourceRecords != nil {
 		for _, rs := range rrset.ResourceRecords {
 			var recrecord resourceRecords
@@ -559,8 +569,7 @@ func getRoute53ZoneConfig(config *route53Zone, rrset *route53.ResourceRecordSet)
 		}
 	}
 
+	// Finally append the RR to the configuration
 	config.ResourceRecordSets = append(config.ResourceRecordSets, rr)
-
-	return &rr
 
 }
