@@ -4,9 +4,21 @@ This tool will take a YAML file and synchronize the YAML configuration to an AWS
 hosted zone.  It assumes the configuration file is authoritative and remove records
 that are not in the configuration file, so be careful while testing.
 
+Additionally this tool will extract all DNS configurations from an AWS account.  See usage below.
+
 ## Usage
 
+### Synchronize a configuration to route53
+
+```bash
 route53-zone -c path_to_configuration file
+```
+
+### Extract all route53 configurations from an AWS account
+
+```bash
+route53-zone -p somedirectory/you/want/to/use -b -a 
+```
 
 ## Configuration file
 
@@ -77,3 +89,4 @@ Not all AWS features have been implemented.
 3.  Probably other features missing
 4.  It will not update SOA or NS records, these are filtered out by default
 5.  This is considered alpha quality code.  
+

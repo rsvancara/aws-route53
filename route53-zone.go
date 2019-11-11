@@ -1,5 +1,8 @@
 package main
 
+// Small program to manage DNS in AWS.
+// author: Randall Svancara
+
 import (
 	"flag"
 	"fmt"
@@ -18,6 +21,10 @@ import (
 
 // Configuration file path used in command line parameters
 var config string
+var path string
+var build bool
+var all bool
+var override bool
 
 // Represents a route53Zone configuration
 type route53Zone struct {
@@ -66,6 +73,10 @@ type resourceRecordSet struct {
 // Initializing command line
 func init() {
 	flag.StringVar(&config, "c", "", "configuration")
+	flag.BoolVar(&build, "b", false, "build configuration from hosted zone")
+	flag.StringVar(&path, "p", "", "path to generate configuration files")
+	flag.BoolVar(&override, "o", false, "erase the existing configuration and create a new one")
+	flag.BoolVar(&all, "a", false, "build all configurations for an entire route53 account")
 }
 
 // Main function
@@ -73,21 +84,20 @@ func main() {
 
 	flag.Parse()
 
-	if config == "" {
-		fmt.Println(fmt.Errorf("incomplete arguments: c: %s", config))
-		flag.PrintDefaults()
-		return
+	if all == false {
+		if config == "" {
+			fmt.Println(fmt.Errorf("incomplete arguments: c: %s", config))
+			flag.PrintDefaults()
+			return
+		}
 	}
 
-	if fileExists(config) != true {
-		fmt.Println(fmt.Errorf("configuration file %s does not exist", config))
-		flag.PrintDefaults()
-		return
-	}
-
-	zoneConfig, err := readConfig(config)
-	if err != nil {
-		log.Fatal("error")
+	if all == true {
+		if path == "" {
+			fmt.Println(fmt.Errorf("incomplete arguments: p: %s", path))
+			flag.PrintDefaults()
+			return
+		}
 	}
 
 	// One way to create a session...
@@ -105,14 +115,37 @@ func main() {
 
 	svc := route53.New(sess)
 
-	deltaBuilder(svc, zoneConfig)
+	// if build is false, then we synchronize the configuration to AWS
+	if build == false {
+
+		if fileExists(config) != true {
+			fmt.Println(fmt.Errorf("configuration file %s does not exist", config))
+			flag.PrintDefaults()
+			return
+		}
+
+		zoneConfig, err := readConfig(config)
+		if err != nil {
+			log.Fatal("Error reading the configuration file")
+		}
+
+		deltaBuilder(svc, zoneConfig)
+	}
+
+	// if the build is true, then synchronize the configuration to a configuration file
+	if build == true {
+
+		configBuildAllConfigs(svc, path)
+	}
+
 }
 
 // Print the formatted summary to display at the end of the command
 // execution for summary purposes.  Describes what changed.
-func printReport(changes []*route53.Change) {
-
-	fmt.Println("Propsed Changes:")
+func printReport(changes []*route53.Change, zoneName string) {
+	fmt.Println("*********************************************")
+	fmt.Printf("Propsed Changes for Zone %s:\n", zoneName)
+	fmt.Println("*********************************************")
 	w := new(tabwriter.Writer)
 	w.Init(os.Stdout, 0, 8, 2, '\t', tabwriter.Debug|tabwriter.AlignRight)
 	fmt.Fprintln(w, "ACTION\tNAME\tTYPE")
@@ -123,6 +156,7 @@ func printReport(changes []*route53.Change) {
 			aws.StringValue(change.ResourceRecordSet.Type)))
 	}
 	w.Flush()
+	fmt.Printf("\n\n")
 }
 
 // Read the provided YAML formated configuration file into
@@ -271,9 +305,8 @@ func getChange(changeType string, configrr *resourceRecordSet) (*route53.Change,
 		var change = route53.Change{
 			Action: aws.String(changeType), // Required
 			ResourceRecordSet: &route53.ResourceRecordSet{ // Required
-				Name: aws.String(configrr.Name), // Required
-				Type: aws.String(configrr.Type), // Required
-				//TTL:         aws.Int64(300),
+				Name:        aws.String(configrr.Name), // Required
+				Type:        aws.String(configrr.Type), // Required
 				AliasTarget: &at,
 			},
 		}
@@ -284,10 +317,18 @@ func getChange(changeType string, configrr *resourceRecordSet) (*route53.Change,
 }
 
 // deltaBuilder constructs a resource record changeset based on the differences between the
-// provided configuration and the
+// provided configuration and the hosted zone recordset.
 func deltaBuilder(svc *route53.Route53, config *route53Zone) {
 
 	var changes []*route53.Change
+
+	if config.ZoneID == "" {
+		zoneID, err := getHostedZoneIDByNameLookup(svc, config.Name)
+		if err != nil {
+			log.Fatalf("Error obtaining hosted zoneid for zone %s with error %s", config.Name, err)
+		}
+		config.ZoneID = zoneID
+	}
 
 	// Obtain the current records for the zone in the provided configuration
 	records, err := listAllRecordSets(svc, config.ZoneID)
@@ -326,7 +367,7 @@ func deltaBuilder(svc *route53.Route53, config *route53Zone) {
 
 	creatediff := findRecordsToAdd(config, records)
 	changes = append(changes, creatediff...)
-	printReport(changes)
+	printReport(changes, config.Name)
 
 	err = createResourceRecordSetChange(svc, config.ZoneID, changes)
 	if err != nil {
@@ -429,4 +470,97 @@ func getHostedZoneIDByNameLookup(svc *route53.Route53, hostedZoneName string) (s
 	}
 
 	return zoneID, nil
+}
+
+// Build all route53 configurations for an AWS account
+func configBuildAllConfigs(svc *route53.Route53, path string) {
+
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		os.Mkdir(path, os.ModeDir)
+	}
+
+	zones, err := getHostedZones(svc)
+	if err != nil {
+		log.Fatalf("error obtaining hosted zones list with error: %s", err)
+	}
+
+	for _, val := range zones {
+
+		var config route53Zone
+		zoneID := aws.StringValue(val.Id)
+		zoneName := aws.StringValue(val.Name)
+
+		// remove the /hostedzone/ path if it's there
+		if strings.HasPrefix(zoneID, "/hostedzone/") {
+			zoneID = strings.TrimPrefix(zoneID, "/hostedzone/")
+		}
+
+		rrsets, err := listAllRecordSets(svc, zoneID)
+		if err != nil {
+			log.Fatalf("Error obtaining recordset for hosted zoneid %s with error: %s", zoneID, err)
+		}
+
+		config.Name = zoneName
+
+		fmt.Println("*****************************************")
+		fmt.Printf("Name: %s\n", zoneName)
+		fmt.Println("*****************************************")
+
+		for _, rrset := range rrsets {
+
+			getRoute53ZoneConfig(&config, rrset)
+
+		}
+
+		yamlFile, err := yaml.Marshal(config)
+		if err != nil {
+			log.Fatalf("Error serializing config struct to YAML with error: %s", err)
+		}
+
+		filePath := path + string(os.PathSeparator) + strings.TrimSuffix(zoneName, ".") + ".yaml"
+
+		err = ioutil.WriteFile(filePath, yamlFile, 0644)
+		if err != nil {
+			log.Fatalf("Error generating configuration file %s with error %s", filePath, err)
+		}
+		fmt.Println(fmt.Sprintf("Records: %d", len(config.ResourceRecordSets)))
+		fmt.Println(fmt.Sprintf("Status: Created file %s", filePath))
+	}
+}
+
+// maps a route53.RecordSet to a configuration object
+func getRoute53ZoneConfig(config *route53Zone, rrset *route53.ResourceRecordSet) *resourceRecordSet {
+
+	var rr resourceRecordSet
+
+	if aws.StringValue(rrset.Type) == "SOA" || aws.StringValue(rrset.Type) == "NS" {
+		return nil
+	}
+
+	rr.Name = aws.StringValue(rrset.Name)
+	if rrset.TTL != nil {
+		rr.TTL = aws.Int64Value(rrset.TTL)
+	}
+
+	rr.Type = aws.StringValue(rrset.Type)
+
+	if rrset.AliasTarget != nil {
+		rr.AliasTarget.DNSName = aws.StringValue(rrset.AliasTarget.DNSName)
+		rr.AliasTarget.HostedZoneID = aws.StringValue(rrset.AliasTarget.HostedZoneId)
+		rr.AliasTarget.EvaluateTargetHealth = aws.BoolValue(rrset.AliasTarget.EvaluateTargetHealth)
+	}
+
+	if rrset.ResourceRecords != nil {
+		for _, rs := range rrset.ResourceRecords {
+			var recrecord resourceRecords
+			recrecord.Value = aws.StringValue(rs.Value)
+			rr.ResourceRecords = append(rr.ResourceRecords, recrecord)
+
+		}
+	}
+
+	config.ResourceRecordSets = append(config.ResourceRecordSets, rr)
+
+	return &rr
+
 }
