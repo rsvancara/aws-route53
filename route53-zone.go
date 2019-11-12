@@ -144,7 +144,7 @@ func main() {
 // execution for summary purposes.  Describes what changed.
 func printReport(changes []*route53.Change, zoneName string) {
 	fmt.Println("*********************************************")
-	fmt.Printf("Propsed Changes for Zone %s:\n", zoneName)
+	fmt.Printf("Proposed Changes for Zone %s:\n", zoneName)
 	fmt.Println("*********************************************")
 	w := new(tabwriter.Writer)
 	w.Init(os.Stdout, 0, 8, 2, '\t', tabwriter.Debug|tabwriter.AlignRight)
@@ -443,7 +443,7 @@ func listAllRecordSets(r53 *route53.Route53, id string) (rrsets []*route53.Resou
 	return
 }
 
-// Look up a hosted zone by ID
+// Look up a hosted zone by Name
 func getHostedZoneIDByNameLookup(svc *route53.Route53, hostedZoneName string) (string, error) {
 
 	listParams := &route53.ListHostedZonesByNameInput{
@@ -463,6 +463,14 @@ func getHostedZoneIDByNameLookup(svc *route53.Route53, hostedZoneName string) (s
 	}
 
 	zoneID := *zones[0].Id
+	zoneName := *zones[0].Name
+
+	// Safety check because sometimes the first row is not the same hosted zone you are looking for,
+	// but rather the first zone that is found and if the zones does not exist, it will return
+	// the nearest zone which is not what you are looking for
+	if zoneName != hostedZoneName {
+		log.Fatalf("Hosted zones names do not match, quiting: [%s] - [%s]", hostedZoneName, zoneName)
+	}
 
 	// remove the /hostedzone/ path if it's there
 	if strings.HasPrefix(zoneID, "/hostedzone/") {
